@@ -3,8 +3,6 @@
 Install the following required libraries:
 
 bash
-复制
-编辑
 sudo apt-get update
 sudo apt-get install libglib2.0-dev
 sudo apt-get install libmsgpack-dev
@@ -15,22 +13,16 @@ sudo apt-get install libgtest-dev
 Follow the steps below to install Go (reference: this blog post):
 
 bash
-复制
-编辑
 wget -c https://dl.google.com/go/go1.14.2.linux-amd64.tar.gz -O - | sudo tar -xz -C /usr/local
 export PATH=$PATH:/usr/local/go/bin
 source ~/.profile
 Install goreman:
 
 bash
-复制
-编辑
 go install github.com/mattn/goreman@latest
 If cloning fails due to network restrictions, manually download using VPN:
 
 bash
-复制
-编辑
 mkdir -p $GOPATH/src/github.com/mattn
 cd $GOPATH/src/github.com/mattn
 git clone https://github.com/mattn/goreman.git
@@ -44,21 +36,15 @@ Bug fixes were primarily identified via log inspection.
 In a 3-node cluster, one node repeatedly crashed. Logs indicated an inconsistency between the persisted commit index and the current log:
 
 cpp
-复制
-编辑
 if (state.commit < raft_log_->committed_ || state.commit > raft_log_->last_index())
 This check assumes that the commit index is always smaller than the current log, which is not true when snapshots are involved. Fix:
 
 cpp
-复制
-编辑
 if (state.commit > raft_log_->last_index())
 🐛 Bug #2: Nullptr Dereferencing
 A simple null pointer dereference when accessing a progress pointer:
 
 cpp
-复制
-编辑
 ProgressPtr progress = get_progress(node);
 if (progress) {
   LOG_INFO("%lu restored progress of %lu [%s]", id_, node, progress->string().c_str());
@@ -68,16 +54,12 @@ if (progress) {
 Previously it accessed the pointer without checking:
 
 cpp
-复制
-编辑
 LOG_INFO("%lu restored progress of %lu [%s]", id_, node, get_progress(id_)->string().c_str());
 ✅ Verification Process
 A 5-node Raft cluster is launched using goreman, and the synchronization mechanism is verified via Redis CLI.
 
 🖥️ Launch Cluster
 bash
-复制
-编辑
 # Ensure goreman is installed: go get github.com/mattn/goreman
 
 node1: ./raft-kv/raft-kv --id 1 --cluster=127.0.0.1:12379,... --port 63791  
@@ -89,21 +71,15 @@ node5: ./raft-kv/raft-kv --id 5 --cluster=127.0.0.1:12379,... --port 63795
 Start the cluster:
 
 bash
-复制
-编辑
 goreman start
 Connect via Redis CLI:
 
 bash
-复制
-编辑
 redis-cli -p 63791
 set mykey myvalue
 Simulate node failure and recovery:
 
 bash
-复制
-编辑
 goreman run stop node2
 redis-cli -p 63792   # Should fail to connect
 goreman run start node2
