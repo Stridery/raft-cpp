@@ -1,75 +1,112 @@
-# raft-kv
+⚙️ Environment Setup
+🧩 Dependencies
+Install the following required libraries:
 
-## Getting Started
+bash
+复制
+编辑
+sudo apt-get update
+sudo apt-get install libglib2.0-dev
+sudo apt-get install libmsgpack-dev
+sudo apt-get install libhiredis-dev
+sudo apt-get install libboost-all-dev
+sudo apt-get install libgtest-dev
+🛠️ Install Go
+Follow the steps below to install Go (reference: this blog post):
 
-### Build
-    mkdir -p raft-kv/build
-    cd raft-kv/build
-    cmake .. -DCMAKE_BUILD_TYPE=Release
-    make -j8
-    
-### Running a cluster
+bash
+复制
+编辑
+wget -c https://dl.google.com/go/go1.14.2.linux-amd64.tar.gz -O - | sudo tar -xz -C /usr/local
+export PATH=$PATH:/usr/local/go/bin
+source ~/.profile
+Install goreman:
 
-First install [goreman](https://github.com/mattn/goreman), which manages Procfile-based applications.
+bash
+复制
+编辑
+go install github.com/mattn/goreman@latest
+If cloning fails due to network restrictions, manually download using VPN:
 
-    goreman start
-    
-    
-### Test
+bash
+复制
+编辑
+mkdir -p $GOPATH/src/github.com/mattn
+cd $GOPATH/src/github.com/mattn
+git clone https://github.com/mattn/goreman.git
+cd goreman
+go env -w GOPROXY=https://goproxy.cn,direct
+go install
+🐞 Bug Investigation
+Bug fixes were primarily identified via log inspection.
 
-install [redis-cli](https://github.com/antirez/redis), a redis console client.
+🐛 Bug #1: Node Crashing Due to Commit Index Check
+In a 3-node cluster, one node repeatedly crashed. Logs indicated an inconsistency between the persisted commit index and the current log:
 
-    redis-cli -p 63791
-    127.0.0.1:63791> set mykey myvalue
-    OK
-    127.0.0.1:63791> get mykey
-    "myvalue"
-    
-remove a node and replace the myvalue with "new-value" to check cluster availability:
+cpp
+复制
+编辑
+if (state.commit < raft_log_->committed_ || state.commit > raft_log_->last_index())
+This check assumes that the commit index is always smaller than the current log, which is not true when snapshots are involved. Fix:
 
-    goreman run stop node2
-    redis-cli -p 63791
-    127.0.0.1:63791> set mykey new-value
-    OK
-    
-bring the node back up and verify it recovers with the updated value "new-value":
+cpp
+复制
+编辑
+if (state.commit > raft_log_->last_index())
+🐛 Bug #2: Nullptr Dereferencing
+A simple null pointer dereference when accessing a progress pointer:
 
-    redis-cli -p 63792
-    127.0.0.1:63792> KEYS *
-    1) "mykey"
-    127.0.0.1:63792> get mykey
-    "new-value"
-    
-### benchmark
+cpp
+复制
+编辑
+ProgressPtr progress = get_progress(node);
+if (progress) {
+  LOG_INFO("%lu restored progress of %lu [%s]", id_, node, progress->string().c_str());
+} else {
+  LOG_ERROR("Progress for %lu not found", node);
+}
+Previously it accessed the pointer without checking:
 
-    redis-benchmark -t set,get -n 100000 -p 63791
-    
-    ====== SET ======
-      100000 requests completed in 1.35 seconds
-      50 parallel clients
-      3 bytes payload
-      keep alive: 1
-    
-    96.64% <= 1 milliseconds
-    99.15% <= 2 milliseconds
-    99.90% <= 3 milliseconds
-    100.00% <= 3 milliseconds
-    73909.83 requests per second
-    
-    ====== GET ======
-      100000 requests completed in 0.95 seconds
-      50 parallel clients
-      3 bytes payload
-      keep alive: 1
-    
-    99.95% <= 4 milliseconds
-    100.00% <= 4 milliseconds
-    105485.23 requests per second
-    
-    
-    
-    
-    
-    
-    
+cpp
+复制
+编辑
+LOG_INFO("%lu restored progress of %lu [%s]", id_, node, get_progress(id_)->string().c_str());
+✅ Verification Process
+A 5-node Raft cluster is launched using goreman, and the synchronization mechanism is verified via Redis CLI.
 
+🖥️ Launch Cluster
+bash
+复制
+编辑
+# Ensure goreman is installed: go get github.com/mattn/goreman
+
+node1: ./raft-kv/raft-kv --id 1 --cluster=127.0.0.1:12379,... --port 63791  
+node2: ./raft-kv/raft-kv --id 2 --cluster=127.0.0.1:12379,... --port 63792  
+node3: ./raft-kv/raft-kv --id 3 --cluster=127.0.0.1:12379,... --port 63793  
+node4: ./raft-kv/raft-kv --id 4 --cluster=127.0.0.1:12379,... --port 63794  
+node5: ./raft-kv/raft-kv --id 5 --cluster=127.0.0.1:12379,... --port 63795  
+🚀 Run and Test
+Start the cluster:
+
+bash
+复制
+编辑
+goreman start
+Connect via Redis CLI:
+
+bash
+复制
+编辑
+redis-cli -p 63791
+set mykey myvalue
+Simulate node failure and recovery:
+
+bash
+复制
+编辑
+goreman run stop node2
+redis-cli -p 63792   # Should fail to connect
+goreman run start node2
+redis-cli -p 63792
+get mykey            # Should return new-value after recovery
+This verifies that the restarted node successfully re-synchronizes with the cluster after failure.
